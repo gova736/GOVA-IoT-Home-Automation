@@ -1,0 +1,509 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <FastLED.h>
+#include <DHT.h>
+
+#define STRIP_PIN D4
+#define NUM_LEDS 7
+
+#define SINGLE_LED D1
+
+#define DHT_PIN D2
+#define DHT_TYPE DHT11
+
+CRGB leds[NUM_LEDS];
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+ESP8266WebServer server(80);
+
+int brightnessValue = 50;
+float temperatureLimit = 30.0;
+
+bool autoMode = true;
+bool rainbowMode = false;
+bool ledState = false;
+
+byte rainbowHue = 0;
+
+
+// ---------- RGB COLOR ----------
+
+void setColor(CRGB color)
+{
+  rainbowMode = false;
+
+  FastLED.clear();
+  fill_solid(leds, NUM_LEDS, color);
+
+  FastLED.setBrightness(brightnessValue);
+  FastLED.show();
+}
+
+// ---------- RAINBOW ----------
+
+void updateRainbow()
+{
+  if (!rainbowMode)
+    return;
+
+  static unsigned long lastRainbow = 0;
+
+  if (millis() - lastRainbow < 5)
+    return;
+
+  lastRainbow = millis();
+
+  for (int i = 0; i < NUM_LEDS; i++)
+  {
+    leds[i] = CHSV(rainbowHue + (i * 30), 255, 255);
+  }
+
+  FastLED.setBrightness(brightnessValue);
+  FastLED.show();
+
+  rainbowHue++;
+}
+// ---------- TEMPERATURE AUTO LED ----------
+
+// ---------- TEMPERATURE AUTO LED ----------
+
+void checkTemperature()
+{
+  if (!autoMode)
+    return;
+
+  float temperature = dht.readTemperature();
+
+  if (isnan(temperature))
+    return;
+
+  if (temperature >= temperatureLimit)
+  {
+    digitalWrite(SINGLE_LED, LOW);
+    ledState = true;
+  }
+  else
+  {
+    digitalWrite(SINGLE_LED, HIGH);
+    ledState = false;
+  }
+}
+
+
+// ---------- WEB PAGE ----------
+
+String webpage()
+{
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  String tempText;
+  String humText;
+
+  if (isnan(temperature))
+    tempText = "Sensor Error";
+  else
+    tempText = String(temperature, 1) + " C";
+
+  if (isnan(humidity))
+    humText = "Sensor Error";
+  else
+    humText = String(humidity, 1) + " %";
+
+  String page = "";
+
+  page += "<!DOCTYPE html>";
+  page += "<html><head>";
+  page += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  page += "<title>IoT Home Automation</title>";
+
+  page += "<style>";
+  page += "body{font-family:Arial;background:#07111f;color:white;padding:15px;}";
+  page += ".box{max-width:650px;margin:auto;}";
+  page += ".card{background:#162235;padding:20px;margin:15px 0;border-radius:18px;}";
+  page += "button{padding:13px;margin:4px;border:0;border-radius:10px;font-weight:bold;}";
+  page += ".red{background:red;color:white;}";
+  page += ".green{background:green;color:white;}";
+  page += ".blue{background:blue;color:white;}";
+  page += ".white{background:white;color:black;}";
+  page += ".purple{background:purple;color:white;}";
+  page += ".yellow{background:yellow;color:black;}";
+  page += ".cyan{background:cyan;color:black;}";
+  page += ".pink{background:#ff1493;color:white;}";
+  page += ".orange{background:orange;color:black;}";
+  page += ".rainbow{background:#8b5cf6;color:white;}";
+  page += ".dark{background:#374151;color:white;}";
+  page += ".auto{background:#7c3aed;color:white;}";
+  page += ".full{width:100%;}";
+  page += "input{width:100%;}";
+  page += ".value{text-align:center;font-size:25px;font-weight:bold;}";
+  page += "</style>";
+
+  page += "</head><body>";
+  page += "<div class='box'>";
+
+  page += "<div class='card'>";
+  page += "<h1>IoT Home Automation</h1>";
+  page += "<p>ESP8266 Smart Control Dashboard</p>";
+  page += "<p>ESP8266 ONLINE</p>";
+  page += "</div>";
+
+  // RGB STRIP
+
+  page += "<div class='card'>";
+  page += "<h2>RGB LED Strip</h2>";
+
+  page += "<button class='red' onclick=\"location.href='/red'\">RED</button>";
+  page += "<button class='green' onclick=\"location.href='/green'\">GREEN</button>";
+  page += "<button class='blue' onclick=\"location.href='/blue'\">BLUE</button>";
+  page += "<button class='white' onclick=\"location.href='/white'\">WHITE</button>";
+  page += "<button class='purple' onclick=\"location.href='/purple'\">PURPLE</button>";
+  page += "<button class='yellow' onclick=\"location.href='/yellow'\">YELLOW</button>";
+  page += "<button class='cyan' onclick=\"location.href='/cyan'\">CYAN</button>";
+  page += "<button class='pink' onclick=\"location.href='/pink'\">PINK</button>";
+  page += "<button class='orange' onclick=\"location.href='/orange'\">ORANGE</button>";
+  page += "<button class='rainbow' onclick=\"location.href='/rainbow'\">RAINBOW</button>";
+
+  page += "<br><br>";
+
+  page += "<button class='dark full' onclick=\"location.href='/stripoff'\">";
+  page += "STRIP OFF";
+  page += "</button>";
+
+  page += "<h3>Brightness</h3>";
+
+  page += "<div class='value'>";
+  page += String(brightnessValue);
+  page += "</div>";
+
+  page += "<input type='range' min='0' max='255' value='";
+  page += String(brightnessValue);
+  page += "' onchange=\"location.href='/brightness?value='+this.value\">";
+
+  page += "</div>";
+
+
+  // SENSOR
+
+  page += "<div class='card'>";
+  page += "<h2>Environment Monitor</h2>";
+
+  page += "<h3>Temperature</h3>";
+  page += "<div class='value'>";
+  page += tempText;
+  page += "</div>";
+
+  page += "<h3>Humidity</h3>";
+  page += "<div class='value'>";
+  page += humText;
+  page += "</div>";
+
+  page += "</div>";
+
+
+  // AUTO LED
+
+  page += "<div class='card'>";
+  page += "<h2>Temperature LED Automation</h2>";
+
+  page += "<p>Temperature Limit:</p>";
+
+  page += "<div class='value'>";
+  page += String(temperatureLimit, 1);
+  page += " C</div>";
+
+  page += "<input type='range' min='20' max='50' step='0.5' value='";
+  page += String(temperatureLimit, 1);
+  page += "' onchange=\"location.href='/limit?value='+this.value\">";
+
+  page += "<p>Current Temperature: ";
+  page += tempText;
+  page += "</p>";
+
+  if (autoMode)
+  {
+    page += "<p>AUTO MODE: ON</p>";
+
+    page += "<button class='auto full' onclick=\"location.href='/autooff'\">";
+    page += "TURN OFF AUTO MODE";
+    page += "</button>";
+  }
+  else
+  {
+    page += "<p>MANUAL MODE</p>";
+
+    page += "<button class='red full' onclick=\"location.href='/ledon'\">";
+    page += "LED ON";
+    page += "</button>";
+
+    page += "<button class='dark full' onclick=\"location.href='/ledoff'\">";
+    page += "LED OFF";
+    page += "</button>";
+
+    page += "<button class='auto full' onclick=\"location.href='/autoon'\">";
+    page += "TURN ON AUTO MODE";
+    page += "</button>";
+  }
+
+  page += "</div>";
+
+
+  page += "<div class='card'>";
+  page += "<p>ESP8266 | WS2812B | DHT11</p>";
+  page += "<button class='blue full' onclick='location.reload()'>";
+  page += "REFRESH SENSOR";
+  page += "</button>";
+  page += "</div>";
+
+  page += "</div>";
+  page += "</body></html>";
+
+  return page;
+}
+
+
+// =================================================
+// SETUP
+// =================================================
+
+void setup()
+{
+  pinMode(SINGLE_LED, OUTPUT);
+
+  digitalWrite(SINGLE_LED, LOW);
+
+  FastLED.addLeds<WS2812B, STRIP_PIN, GRB>(
+    leds,
+    NUM_LEDS
+  );
+
+  FastLED.setBrightness(brightnessValue);
+
+  FastLED.clear();
+  FastLED.show();
+
+  dht.begin();
+
+  WiFi.mode(WIFI_AP);
+
+  WiFi.softAP(
+    "ESP8266_LED",
+    "12345678"
+  );
+
+
+  // MAIN PAGE
+
+  server.on("/", []()
+  {
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // COLORS
+
+server.on("/red", []()
+{
+  setColor(CRGB(255, 0, 0));
+
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+  server.on("/green", []()
+{
+  setColor(CRGB(0, 255, 0));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/blue", []()
+{
+  setColor(CRGB(0, 0, 255));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/white", []()
+{
+  setColor(CRGB(255, 255, 255));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/purple", []()
+{
+  setColor(CRGB(128, 0, 255));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/yellow", []()
+{
+  setColor(CRGB(255, 255, 0));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/cyan", []()
+{
+  setColor(CRGB(0, 255, 255));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/pink", []()
+{
+  setColor(CRGB(255, 20, 147));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+server.on("/orange", []()
+{
+  setColor(CRGB(255, 100, 0));
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+  // RAINBOW
+
+  server.on("/rainbow", []()
+{
+  rainbowMode = true;
+
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+
+  // STRIP OFF
+
+  server.on("/stripoff", []()
+{
+  rainbowMode = false;
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
+
+  server.sendHeader("Location", "/");
+  server.send(303);
+});
+
+  // BRIGHTNESS
+
+  server.on("/brightness", []()
+  {
+    if (server.hasArg("value"))
+    {
+      brightnessValue = server.arg("value").toInt();
+
+      if (brightnessValue < 0)
+        brightnessValue = 0;
+
+      if (brightnessValue > 255)
+        brightnessValue = 255;
+
+      FastLED.setBrightness(brightnessValue);
+      FastLED.show();
+    }
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // TEMPERATURE LIMIT
+
+  server.on("/limit", []()
+  {
+    if (server.hasArg("value"))
+    {
+      temperatureLimit = server.arg("value").toFloat();
+
+      if (temperatureLimit < 20)
+        temperatureLimit = 20;
+
+      if (temperatureLimit > 50)
+        temperatureLimit = 50;
+    }
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // LED ON
+
+  server.on("/ledon", []()
+  {
+    autoMode = false;
+
+    digitalWrite(SINGLE_LED, HIGH);
+
+    ledState = true;
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // LED OFF
+
+  server.on("/ledoff", []()
+  {
+    autoMode = false;
+
+    digitalWrite(SINGLE_LED, LOW);
+
+    ledState = false;
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // AUTO ON
+
+  server.on("/autoon", []()
+  {
+    autoMode = true;
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  // AUTO OFF
+
+  server.on("/autooff", []()
+  {
+    autoMode = false;
+
+    digitalWrite(SINGLE_LED, LOW);
+
+    ledState = false;
+
+    server.send(200, "text/html", webpage());
+  });
+
+
+  server.begin();
+}
+
+
+// =================================================
+// LOOP
+// =================================================
+
+void loop()
+{
+  server.handleClient();
+
+  static unsigned long lastDHT = 0;
+
+  if (millis() - lastDHT >= 2000)
+  {
+    lastDHT = millis();
+    checkTemperature();
+  }
+
+  updateRainbow();
+
+  delay(2);
+}
